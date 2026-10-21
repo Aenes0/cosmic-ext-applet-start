@@ -425,6 +425,16 @@ impl cosmic::Application for StartMenu {
             Message::Spawn(program, args) => {
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
                 spawn(program, &args);
+                // Settings runs once: a second run only tells the first,
+                // which the compositor doesn't bring forward. So we do.
+                if program == "cosmic-settings"
+                    && let Some(window) = self
+                        .windows
+                        .iter()
+                        .find(|w| w.app_id.eq_ignore_ascii_case("com.system76.CosmicSettings"))
+                {
+                    return self.activate(window.id.clone());
+                }
                 return self.hide();
             }
             Message::Nothing => {}
