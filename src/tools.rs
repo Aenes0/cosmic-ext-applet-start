@@ -153,7 +153,7 @@ fn row<'a, M: Clone + 'static>(icon: &'static str, label: &'static str, arrow: b
     let mut row = widget::row::with_capacity(3)
         .spacing(12)
         .align_y(Alignment::Center)
-        .push(widget::icon::from_name(icon).size(16))
+        .push(widget::icon::icon(crate::menu::symbolic(icon)).size(16))
         .push(widget::text::body(label).width(Length::Fill));
     if arrow {
         row = row.push(widget::icon::from_name("go-next-symbolic").size(12));

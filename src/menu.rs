@@ -1439,7 +1439,6 @@ impl StartMenu {
 
     fn footer(&self, p: Palette) -> Element<'_, Message> {
         let s = texts();
-        let t = texts();
         // The photo, if there is one; else the initial, on the accent.
         let avatar: Element<'_, Message> = match &self.avatar {
             Some(path) => widget::icon(icon::from_path(path.clone())).size(32).into(),
@@ -1464,7 +1463,7 @@ impl StartMenu {
             .spacing(12)
             .align_y(Alignment::Center);
         let round = |name: &'static str, message: Message| -> Element<'_, Message> {
-            button::custom(widget::icon::from_name(name).size(16))
+            button::custom(widget::icon::icon(symbolic(name)).size(20))
                 .padding(10)
                 .class(flat_class(p, false))
                 .on_press(message)
@@ -1477,12 +1476,6 @@ impl StartMenu {
                 .on_press(Message::Menu(Some(Target::User)))
                 .into(),
             widget::space::horizontal().into(),
-            widget::tooltip(
-                round("folder-symbolic", Message::Spawn("xdg-open", vec![std::env::var("HOME").unwrap_or_default()])),
-                widget::text::body(t.files),
-                widget::tooltip::Position::Top,
-            )
-            .into(),
             widget::tooltip(
                 round("emblem-system-symbolic", Message::Spawn("cosmic-settings", Vec::new())),
                 widget::text::body(s.settings),
@@ -1523,7 +1516,7 @@ impl StartMenu {
         let item = |icon_name: Option<&'static str>, label: String, message: Message| -> Element<'_, Message> {
             let mut row = widget::row::with_capacity(2).spacing(12).align_y(Alignment::Center);
             if let Some(name) = icon_name {
-                row = row.push(widget::icon::from_name(name).size(16));
+                row = row.push(widget::icon::icon(symbolic(name)).size(16));
             }
             button::custom(row.push(widget::text::body(label)))
                 .padding([8, 12])
@@ -1592,6 +1585,7 @@ impl StartMenu {
                 place = (Alignment::End, Alignment::End);
                 width = 200.0;
                 items.push(item(Some("system-lock-screen-symbolic"), s.lock.into(), Message::Spawn("loginctl", vec!["lock-session".into()])));
+                items.push(item(Some("system-log-out-symbolic"), s.log_out.into(), Message::Spawn("cosmic-osd", vec!["log-out".into()])));
                 items.push(item(Some("system-suspend-symbolic"), s.suspend.into(), Message::Spawn("systemctl", vec!["suspend".into()])));
                 items.push(item(Some("system-shutdown-symbolic"), s.power_off.into(), Message::Spawn("cosmic-osd", vec!["shutdown".into()])));
                 items.push(item(Some("system-reboot-symbolic"), s.restart.into(), Message::Spawn("cosmic-osd", vec!["restart".into()])));
@@ -1762,6 +1756,23 @@ fn folder_class(p: Palette) -> theme::Button {
         icon_color: Some(p.text),
         ..button::Style::new()
     })
+}
+
+/// Symbols drawn here, not taken from the theme: Breeze's power symbol is a
+/// 1 px ring cut square, drawn for 16 px, that blurs at other sizes, and its
+/// gear has a "play" triangle inside (a service, in KDE). Ours are thin as
+/// Windows', rounded.
+const OWN_SYMBOLS: &[(&str, &[u8])] = &[
+    ("system-shutdown-symbolic", include_bytes!("../data/icons/power-symbolic.svg")),
+    ("emblem-system-symbolic", include_bytes!("../data/icons/settings-symbolic.svg")),
+];
+
+/// A symbolic icon by name, from the theme, but for the ones drawn here.
+pub fn symbolic(name: &str) -> icon::Handle {
+    if let Some((_, svg)) = OWN_SYMBOLS.iter().find(|(own, _)| *own == name) {
+        return icon::from_svg_bytes(*svg).symbolic(true);
+    }
+    icon::from_name(name).symbolic(true).handle()
 }
 
 fn named_icon(names: &[&str]) -> icon::Handle {
@@ -2682,5 +2693,34 @@ impl StartButton {
             Some(id) => cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(id),
             None => Task::none(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn from_memory(handle: &icon::Handle) -> bool {
+        matches!(&handle.data, icon::Data::Svg(svg)
+            if matches!(svg.data(), cosmic::iced::core::svg::Data::Bytes(_)))
+    }
+
+    #[test]
+    fn the_power_symbol_is_ours_not_the_themes() {
+        let handle = symbolic("system-shutdown-symbolic");
+        assert!(handle.symbolic);
+        assert!(from_memory(&handle));
+    }
+
+    #[test]
+    fn the_settings_gear_is_ours_not_the_themes() {
+        let handle = symbolic("emblem-system-symbolic");
+        assert!(handle.symbolic);
+        assert!(from_memory(&handle));
+    }
+
+    #[test]
+    fn other_symbols_still_come_from_the_theme() {
+        assert!(!from_memory(&symbolic("go-next-symbolic")));
     }
 }
