@@ -2,6 +2,7 @@
 
 mod menu;
 mod texts;
+mod tools;
 
 pub const APP_ID: &str = "io.github.Aenes0.CosmicStart";
 
@@ -15,8 +16,15 @@ fn main() -> cosmic::iced::Result {
         .init();
     // The menu, which stays running, hidden between uses: a second run
     // only asks the first to show or hide.
-    if std::env::args().any(|arg| arg == "--menu") {
-        if menu::toggle_running() {
+    // Win+X's "Desktop", by itself.
+    if std::env::args().any(|arg| arg == "--show-desktop") {
+        menu::show_desktop();
+        return Ok(());
+    }
+    let tools = std::env::args().any(|arg| arg == "--tools");
+    if tools || std::env::args().any(|arg| arg == "--menu") {
+        let running = if tools { menu::tools_running() } else { menu::toggle_running() };
+        if running {
             return Ok(());
         }
         menu::migrate();
@@ -24,7 +32,7 @@ fn main() -> cosmic::iced::Result {
             .no_main_window(true)
             .exit_on_close(false)
             .transparent(true);
-        return cosmic::app::run::<menu::StartMenu>(settings, ());
+        return cosmic::app::run::<menu::StartMenu>(settings, tools);
     }
     // Else the button, as the panel runs it.
     cosmic::applet::run::<menu::StartButton>(())

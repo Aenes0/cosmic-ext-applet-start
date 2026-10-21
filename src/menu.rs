@@ -90,6 +90,15 @@ static HOME: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::new("start-home
 /// Asks the running menu to show or hide; false when none runs, and this
 /// one should be it.
 pub fn toggle_running() -> bool {
+    call_running("Toggle")
+}
+
+/// The same for the tools' menu (Win+X).
+pub fn tools_running() -> bool {
+    call_running("Tools")
+}
+
+fn call_running(method: &str) -> bool {
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
         return false;
     };
@@ -97,7 +106,7 @@ pub fn toggle_running() -> bool {
         let Ok(conn) = zbus::Connection::session().await else {
             return false;
         };
-        conn.call_method(Some(BUS_NAME), BUS_PATH, Some(BUS_NAME), "Toggle", &())
+        conn.call_method(Some(BUS_NAME), BUS_PATH, Some(BUS_NAME), method, &())
             .await
             .is_ok()
     })
@@ -177,6 +186,9 @@ enum Pick<'a> {
 #[derive(Clone, Debug)]
 pub enum Message {
     Toggle,
+    /// Win+X: the tools' menu, or away if it shows.
+    Tools,
+    Tool(crate::tools::Tool),
     Hide,
     Unfocused,
     Escape,
@@ -234,15 +246,19 @@ pub struct StartMenu {
     user: String,
     avatar: Option<PathBuf>,
     on_top: bool,
+    /// Showing the tools (Win+X) instead of the menu.
+    tools: bool,
+    power_open: bool,
 }
 
 impl cosmic::Application for StartMenu {
     type Message = Message;
     type Executor = cosmic::executor::Default;
-    type Flags = ();
+    /// Whether to open on the tools.
+    type Flags = bool;
     const APP_ID: &'static str = APP_ID;
 
-    fn init(mut core: app::Core, _flags: ()) -> (Self, app::Task<Message>) {
+    fn init(mut core: app::Core, tools: bool) -> (Self, app::Task<Message>) {
         // No frosted glass: libcosmic would blur what is behind the whole
         // surface, the screen all over, not just the menu.
         core.set_auto_blur(Default::default());
@@ -270,13 +286,20 @@ impl cosmic::Application for StartMenu {
             user: user_name(),
             avatar: avatar(),
             on_top: panel_on_top(),
+            tools: false,
+            power_open: false,
         };
         let show = menu.show();
-        // COSMIC_START_PREVIEW=recommended, power, user or a category's
+        menu.tools = tools;
+        // COSMIC_START_PREVIEW=recommended, power, user, tools-power or a category's
         // number opens there; any other text searches it: to see them
         // without clicking.
         match std::env::var("COSMIC_START_PREVIEW").as_deref() {
             Ok("recommended") => menu.page = Page::Recommended,
+            Ok("tools-power") => {
+                menu.tools = true;
+                menu.power_open = true;
+            }
             Ok("power") => menu.menu = Some(Target::Power),
             Ok("user") => menu.menu = Some(Target::User),
             Ok("grid") => menu.all_view = AllView::Grid,
@@ -315,6 +338,27 @@ impl cosmic::Application for StartMenu {
                 return if self.surface.is_some() { self.hide() } else { self.show() };
             }
             Message::Hide => return self.hide(),
+            Message::Tools => {
+                if self.surface.is_some() && self.tools {
+                    return self.hide();
+                }
+                let show = self.show();
+                self.tools = true;
+                return show;
+            }
+            Message::Tool(tool) => {
+                if matches!(tool, crate::tools::Tool::PowerMenu) {
+                    self.power_open = !self.power_open;
+                    return Task::none();
+                }
+                // Search is this menu itself.
+                if matches!(tool, crate::tools::Tool::Search) {
+                    self.tools = false;
+                    return text_input::focus(SEARCH.clone());
+                }
+                tool.run();
+                return self.hide();
+            }
             // Losing the keyboard as it opens is not someone leaving it.
             Message::Unfocused => {
                 if self.shown_at.elapsed() > Duration::from_millis(400) {
@@ -324,7 +368,9 @@ impl cosmic::Application for StartMenu {
             Message::Escape => {
                 // As on Windows: a menu open closes first, then the search
                 // empties, then the page goes back, then it all goes.
-                if self.menu.is_some() {
+                if self.tools {
+                    return self.hide();
+                } else if self.menu.is_some() {
                     self.menu = None;
                 } else if !self.query.is_empty() {
                     self.query.clear();
@@ -355,6 +401,9 @@ impl cosmic::Application for StartMenu {
                 self.menu = None;
             }
             Message::TypeAhead(text) => {
+                if self.tools {
+                    return Task::none();
+                }
                 self.query.push_str(&text);
                 self.selected = 0;
                 return text_input::focus(SEARCH.clone());
@@ -481,6 +530,29 @@ impl cosmic::Application for StartMenu {
             return widget::text("").into();
         }
         let p = palette(&cosmic::theme::active());
+        if self.tools {
+            // Where the menu's left edge would be: by the Start button,
+            // as near as the menu knows.
+            let tools = widget::mouse_area(crate::tools::view(self.power_open, Message::Tool, p))
+                .on_press(Message::Nothing);
+            let column = widget::container(tools)
+                .width(Length::Fixed(WIDTH))
+                .align_x(Alignment::Start);
+            let placed = widget::container(column)
+                .padding(MARGIN)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(if self.on_top { Alignment::Start } else { Alignment::End });
+            let backdrop = widget::mouse_area(
+                widget::container(widget::space::horizontal())
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .on_press(Message::Hide)
+            .on_right_press(Message::Hide);
+            return iced::widget::stack(vec![backdrop.into(), placed.into()]).into();
+        }
         let height = if self.room > 0.0 {
             HEIGHT.min(self.room - 2.0 * MARGIN)
         } else {
@@ -560,6 +632,8 @@ impl StartMenu {
         self.page = Page::Home;
         self.menu = None;
         self.pinned_expanded = false;
+        self.tools = false;
+        self.power_open = false;
         self.on_top = panel_on_top();
         let surface = get_layer_surface(SctkLayerSurfaceSettings {
             id,
@@ -1528,22 +1602,22 @@ impl StartMenu {
 /// Windows 11's own colors, dark or light as the theme is; the accent is
 /// the theme's.
 #[derive(Clone, Copy)]
-struct Palette {
-    bg: Color,
-    popup: Color,
-    border: Color,
-    hover: Color,
-    selected: Color,
-    card: Color,
-    folder: Color,
-    text: Color,
-    dim: Color,
-    footer: Color,
-    field: Color,
-    accent: Color,
+pub struct Palette {
+    pub bg: Color,
+    pub popup: Color,
+    pub border: Color,
+    pub hover: Color,
+    pub selected: Color,
+    pub card: Color,
+    pub folder: Color,
+    pub text: Color,
+    pub dim: Color,
+    pub footer: Color,
+    pub field: Color,
+    pub accent: Color,
 }
 
-fn palette(theme: &cosmic::Theme) -> Palette {
+pub fn palette(theme: &cosmic::Theme) -> Palette {
     let cosmic = theme.cosmic();
     let accent: Color = cosmic.accent_color().into();
     let rgba = |r: u8, g: u8, b: u8, a: f32| Color::from_rgba8(r, g, b, a);
@@ -1591,7 +1665,7 @@ fn button_class(style: impl Fn(bool, bool) -> button::Style + Clone + 'static) -
 }
 
 /// The lists' and the grid's: nothing until the mouse is on it.
-fn flat_class(p: Palette, selected: bool) -> theme::Button {
+pub fn flat_class(p: Palette, selected: bool) -> theme::Button {
     button_class(move |hovered, pressed| button::Style {
         background: (hovered || selected).then(|| {
             Background::Color(if pressed { p.card } else if hovered { p.hover } else { p.selected })
@@ -2060,6 +2134,10 @@ impl Service {
     async fn toggle(&self) {
         _ = self.0.clone().send(Message::Toggle).await;
     }
+
+    async fn tools(&self) {
+        _ = self.0.clone().send(Message::Tools).await;
+    }
 }
 
 fn dbus_service() -> Subscription<Message> {
@@ -2266,7 +2344,7 @@ sctk::delegate_registry!(State);
 
 /// This program, where it is now: after a reinstall the running one's file
 /// is gone, and Linux names it "… (deleted)"; the new one is at that path.
-fn self_exe() -> PathBuf {
+pub fn self_exe() -> PathBuf {
     std::env::current_exe()
         .map(|exe| {
             let path = exe.to_string_lossy();
@@ -2275,21 +2353,90 @@ fn self_exe() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("cosmic-ext-applet-start"))
 }
 
-/// The panel's button: four squares, as Windows has it; a click opens the
-/// menu, or closes it.
-#[derive(Default)]
+/// Start a program apart from the panel: not on the applet's own Wayland
+/// socket, which the panel passes down (WAYLAND_SOCKET), but on the
+/// compositor's, in its own session, to outlive the applet.
+pub fn spawn_clean(program: &str, args: &[&str]) {
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy();
+        if name == "WAYLAND_SOCKET" || name == "X_PRIVILEGED_WAYLAND_SOCKET" || name.starts_with("COSMIC_PANEL_") {
+            command.env_remove(&key);
+        }
+    }
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(err) => tracing::error!("cannot run {program}: {err}"),
+    }
+}
+
+/// Minimizes every window, Win+X's "Desktop": by itself, once, and leaves.
+pub fn show_desktop() {
+    let run = || -> Result<(), Box<dyn std::error::Error>> {
+        let conn = Connection::connect_to_env()?;
+        let (globals, mut event_queue) = registry_queue_init(&conn)?;
+        let qh = event_queue.handle();
+        let registry_state = RegistryState::new(&globals);
+        let mut state = State {
+            seat_state: SeatState::new(&globals, &qh),
+            info: ToplevelInfoState::try_new(&registry_state, &qh).ok_or("no toplevel info")?,
+            manager: ToplevelManagerState::try_new(&registry_state, &qh).ok_or("no toplevel manager")?,
+            registry_state,
+            tx: mpsc::channel(1).0,
+            order: Vec::new(),
+            dirty: false,
+        };
+        // Twice: the windows, then what each is.
+        event_queue.roundtrip(&mut state)?;
+        event_queue.roundtrip(&mut state)?;
+        for toplevel in state.info.toplevels() {
+            if let Some(handle) = &toplevel.cosmic_toplevel {
+                state.manager.manager.set_minimized(handle);
+            }
+        }
+        event_queue.roundtrip(&mut state)?;
+        Ok(())
+    };
+    if let Err(err) = run() {
+        tracing::error!("cannot show the desktop: {err}");
+    }
+}
+
+/// The panel's button: four squares, as Windows has it. A click opens the
+/// menu, or closes it; a right click, the tools' menu (Win+X), by it.
 pub struct StartButton {
     core: app::Core,
+    popup: Option<window::Id>,
+    power_open: bool,
+}
+
+#[derive(Clone, Debug)]
+pub enum ButtonMessage {
+    Click,
+    RightClick,
+    Tool(crate::tools::Tool),
+    Closed(window::Id),
 }
 
 impl cosmic::Application for StartButton {
-    type Message = ();
+    type Message = ButtonMessage;
     type Executor = cosmic::SingleThreadExecutor;
     type Flags = ();
     const APP_ID: &'static str = crate::APP_ID;
 
-    fn init(core: app::Core, _flags: ()) -> (Self, app::Task<()>) {
-        (Self { core }, Task::none())
+    fn init(mut core: app::Core, _flags: ()) -> (Self, app::Task<ButtonMessage>) {
+        core.set_auto_blur(Default::default());
+        (Self { core, popup: None, power_open: false }, Task::none())
     }
 
     fn core(&self) -> &app::Core {
@@ -2304,42 +2451,56 @@ impl cosmic::Application for StartButton {
         Some(cosmic::applet::style())
     }
 
-    fn update(&mut self, (): ()) -> app::Task<()> {
-        // The menu running answers over D-Bus; else it starts, apart from
-        // the panel: not on the applet's own Wayland socket, which the
-        // panel passes down (WAYLAND_SOCKET), but on the compositor's.
-        std::thread::spawn(|| {
-            if toggle_running() {
-                return;
+    fn update(&mut self, message: ButtonMessage) -> app::Task<ButtonMessage> {
+        match message {
+            ButtonMessage::Click => {
+                // The menu running answers over D-Bus; else it starts.
+                std::thread::spawn(|| {
+                    if !toggle_running() {
+                        spawn_clean(&self_exe().to_string_lossy(), &["--menu"]);
+                    }
+                });
+                return self.close();
             }
-            let mut command = std::process::Command::new(self_exe());
-            command.arg("--menu");
-            for (key, _) in std::env::vars_os() {
-                let key_str = key.to_string_lossy();
-                if key_str == "WAYLAND_SOCKET"
-                    || key_str == "X_PRIVILEGED_WAYLAND_SOCKET"
-                    || key_str.starts_with("COSMIC_PANEL_")
-                {
-                    command.env_remove(&key);
+            ButtonMessage::RightClick => {
+                if self.popup.is_some() {
+                    return self.close();
+                }
+                let Some(parent) = self.core.main_window_id() else {
+                    return Task::none();
+                };
+                let id = window::Id::unique();
+                self.popup = Some(id);
+                self.power_open = false;
+                return cosmic::surface::surface_task(cosmic::surface::action::app_popup(
+                    |_: &Self| Default::default(),
+                    move |app: &mut Self| {
+                        let mut settings = app.core.applet.get_popup_settings(parent, id, None, None, None);
+                        settings.positioner.size_limits =
+                            Limits::NONE.min_width(1.0).min_height(1.0).max_width(500.0).max_height(800.0);
+                        settings
+                    },
+                    None,
+                ));
+            }
+            ButtonMessage::Tool(tool) => {
+                if matches!(tool, crate::tools::Tool::PowerMenu) {
+                    self.power_open = !self.power_open;
+                    return Task::none();
+                }
+                tool.run();
+                return self.close();
+            }
+            ButtonMessage::Closed(id) => {
+                if self.popup == Some(id) {
+                    self.popup = None;
                 }
             }
-            // Its own session, to outlive the applet.
-            unsafe {
-                use std::os::unix::process::CommandExt;
-                command.pre_exec(|| {
-                    libc::setsid();
-                    Ok(())
-                });
-            }
-            match command.spawn() {
-                Ok(mut child) => _ = child.wait(),
-                Err(err) => tracing::error!("cannot start the start menu: {err}"),
-            }
-        });
+        }
         Task::none()
     }
 
-    fn view(&self) -> Element<'_, ()> {
+    fn view(&self) -> Element<'_, ButtonMessage> {
         let applet = &self.core.applet;
         let (major, minor) = applet.suggested_padding(true);
         let size = applet.suggested_size(true).0 as f32;
@@ -2366,7 +2527,34 @@ impl cosmic::Application for StartButton {
         let button = button::custom(logo)
             .padding(if horizontal { [minor, major] } else { [major, minor] })
             .class(theme::Button::AppletIcon)
-            .on_press(());
-        applet.autosize_window(button).into()
+            .on_press(ButtonMessage::Click);
+        applet
+            .autosize_window(widget::mouse_area(button).on_right_press(ButtonMessage::RightClick))
+            .into()
+    }
+
+    fn view_window(&self, id: window::Id) -> Element<'_, ButtonMessage> {
+        if self.popup != Some(id) {
+            return widget::text("").into();
+        }
+        let p = palette(&cosmic::theme::active());
+        cosmic::widget::autosize::autosize(
+            crate::tools::view(self.power_open, ButtonMessage::Tool, p),
+            cosmic::widget::Id::new("start-tools-autosize"),
+        )
+        .into()
+    }
+
+    fn on_close_requested(&self, id: window::Id) -> Option<ButtonMessage> {
+        Some(ButtonMessage::Closed(id))
+    }
+}
+
+impl StartButton {
+    fn close(&mut self) -> app::Task<ButtonMessage> {
+        match self.popup.take() {
+            Some(id) => cosmic::iced::platform_specific::shell::commands::popup::destroy_popup(id),
+            None => Task::none(),
+        }
     }
 }

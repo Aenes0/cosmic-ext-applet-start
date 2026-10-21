@@ -26,12 +26,43 @@ e Abrir local do arquivo. Esc fecha um menu, depois limpa a pesquisa, depois fec
 clicar fora também fecha. Na primeira vez, os fixados são os do dock, mais Arquivos,
 Terminal, Configurações, Loja e Editor de Texto.
 
+## Clique direito no botão (Win+X)
+
+O clique direito no botão Iniciar, ou Super+X, abre o menu de ferramentas do Windows, na
+mesma ordem, cada uma com o que faz isso aqui:
+
+| No Windows | Aqui |
+| --- | --- |
+| Aplicativos instalados | Configurações › Aplicativos |
+| Opções de energia | Configurações › Energia |
+| Visualizador de eventos | `journalctl -b` num terminal |
+| Sistema | Configurações › Sobre |
+| Conexões de rede | Configurações › Rede |
+| Gerenciamento de disco | GNOME Discos, quando instalado |
+| Terminal | COSMIC Terminal |
+| Terminal (Admin) | `sudo -i` num terminal |
+| Gerenciador de Tarefas | COSMIC Monitor (ou `btop` num terminal) |
+| Configurações | Configurações |
+| Explorador de Arquivos | Arquivos do COSMIC |
+| Pesquisar | o menu Iniciar |
+| Executar | o lançador do COSMIC |
+| Desligar ou sair › | Sair, Suspender, Desligar, Reiniciar |
+| Área de trabalho | minimiza todas as janelas |
+
+O que não tem equivalente (Gerenciador de dispositivos, Central de mobilidade,
+Gerenciamento do computador) fica de fora. O COSMIC Terminal não roda um comando que se
+passa a ele, então o Visualizador de eventos e o Terminal (Admin) abrem no primeiro destes
+que houver: Alacritty, kitty, foot, WezTerm, Konsole, GNOME Terminal, xterm. O Super+X,
+que no COSMIC troca janelas de lugar, passa a abrir este menu (`./setup.sh --undo` devolve).
+
 ## Como funciona
 
 São dois papéis do mesmo programa:
 
 - `cosmic-ext-applet-start`, como o painel roda os applets, é o **botão** de quatro
   quadrados;
+- `cosmic-ext-applet-start --tools` abre as ferramentas (Super+X), e `--show-desktop`
+  minimiza todas as janelas;
 - `cosmic-ext-applet-start --menu` é o **menu**, uma camada sobre a tela (não um popup de
   applet), para a tecla Super poder abri-lo e ele receber o teclado. O primeiro fica
   aberto, escondido entre um uso e outro; os seguintes, e o botão, só pedem a ele, pelo
@@ -57,7 +88,7 @@ Applets.
 Precisa de Rust 1.93 ou mais novo (o libcosmic pede) e das bibliotecas de
 desenvolvimento do Wayland e do xkbcommon.
 
-`COSMIC_START_PREVIEW` (`recommended`, `power`, `user`, `grid`, `list`, `end`, o número
+`COSMIC_START_PREVIEW` (`recommended`, `power`, `user`, `tools-power`, `grid`, `list`, `end`, o número
 de uma categoria ou um texto para pesquisar) abre o menu já ali, para tirar print.
 
 O menu fala português e inglês, conforme o idioma do sistema. Licença GPL-3.0.

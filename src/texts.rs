@@ -3,6 +3,20 @@
 //! The menu's words, in Portuguese or English, as the system's language is.
 
 pub struct Texts {
+    pub installed_apps: &'static str,
+    pub power_options: &'static str,
+    pub event_viewer: &'static str,
+    pub system: &'static str,
+    pub network_connections: &'static str,
+    pub disk_management: &'static str,
+    pub terminal: &'static str,
+    pub terminal_admin: &'static str,
+    pub task_manager: &'static str,
+    pub file_explorer: &'static str,
+    pub search: &'static str,
+    pub run: &'static str,
+    pub shut_down_or_sign_out: &'static str,
+    pub desktop: &'static str,
     pub settings: &'static str,
     pub lock: &'static str,
     pub suspend: &'static str,
@@ -47,6 +61,20 @@ pub struct Texts {
 }
 
 const PT: Texts = Texts {
+    installed_apps: "Aplicativos instalados",
+    power_options: "Opções de energia",
+    event_viewer: "Visualizador de eventos",
+    system: "Sistema",
+    network_connections: "Conexões de rede",
+    disk_management: "Gerenciamento de disco",
+    terminal: "Terminal",
+    terminal_admin: "Terminal (Admin)",
+    task_manager: "Gerenciador de Tarefas",
+    file_explorer: "Explorador de Arquivos",
+    search: "Pesquisar",
+    run: "Executar",
+    shut_down_or_sign_out: "Desligar ou sair",
+    desktop: "Área de trabalho",
     settings: "Configurações",
     lock: "Bloquear",
     suspend: "Suspender",
@@ -91,6 +119,20 @@ const PT: Texts = Texts {
 };
 
 const EN: Texts = Texts {
+    installed_apps: "Installed apps",
+    power_options: "Power options",
+    event_viewer: "Event viewer",
+    system: "System",
+    network_connections: "Network connections",
+    disk_management: "Disk management",
+    terminal: "Terminal",
+    terminal_admin: "Terminal (Admin)",
+    task_manager: "Task manager",
+    file_explorer: "File explorer",
+    search: "Search",
+    run: "Run",
+    shut_down_or_sign_out: "Shut down or sign out",
+    desktop: "Desktop",
     settings: "Settings",
     lock: "Lock",
     suspend: "Suspend",
