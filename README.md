@@ -55,6 +55,24 @@ passa a ele, então o Visualizador de eventos e o Terminal (Admin) abrem no prim
 que houver: Alacritty, kitty, foot, WezTerm, Konsole, GNOME Terminal, xterm. O Super+X,
 que no COSMIC troca janelas de lugar, passa a abrir este menu (`./setup.sh --undo` devolve).
 
+## Desempenho
+
+Parado, o menu não gasta nada: escondido, não acorda (0 ms de CPU e nenhuma acordada em
+30 s, medido), nem quando os títulos das janelas mudam; a lista delas só vem quando ele
+abre. Ocupa uns 25 MB (cerca de 11 MB só dele), e cada botão do painel uns 22 MB (8 MB
+só dele). Cada abertura custa uns 90 ms de um núcleo, quase tudo para criar a camada na
+tela, que é refeita a cada vez para abrir no monitor em uso.
+
+O que foi feito para isso:
+
+- uma thread de trabalho, não uma por núcleo (eram 38 threads; agora 7 no menu e 4 em
+  cada botão): o runtime da biblioteca de D-Bus nasce com `TOKIO_WORKER_THREADS=1`, e
+  os programas abertos pelo menu recebem o valor original;
+- os apps só são relidos quando uma pasta de aplicativos muda;
+- escondido, a lista de janelas não é mandada ao menu;
+- ao fechar, a memória do desenho volta ao sistema (`malloc_trim`);
+- sem vidro fosco: o desfoque do tema cobriria a tela inteira.
+
 ## Como funciona
 
 São dois papéis do mesmo programa:

@@ -6,7 +6,15 @@ mod tools;
 
 pub const APP_ID: &str = "io.github.Aenes0.CosmicStart";
 
+/// TOKIO_WORKER_THREADS as it came, for the programs started from here.
+pub static WORKERS: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
+
 fn main() -> cosmic::iced::Result {
+    // The D-Bus library starts a runtime with a thread per core (32 here),
+    // for the little it does: one is plenty. Set before any thread starts.
+    WORKERS.get_or_init(|| std::env::var_os("TOKIO_WORKER_THREADS"));
+    // SAFETY: nothing else runs yet.
+    unsafe { std::env::set_var("TOKIO_WORKER_THREADS", "1") };
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(

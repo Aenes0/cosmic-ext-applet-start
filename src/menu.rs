@@ -20,7 +20,10 @@ use std::{
         unix::net::UnixStream,
     },
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -86,6 +89,8 @@ const CATEGORY_COLUMNS: usize = 4;
 
 static SEARCH: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::new("start-search"));
 static HOME: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::new("start-home"));
+/// Whether the menu shows, for the windows' thread.
+static WINDOWS_SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// Asks the running menu to show or hide; false when none runs, and this
 /// one should be it.
@@ -195,7 +200,8 @@ pub enum Message {
     Focus,
     Focused,
     Resized(f32),
-    Apps(Arc<Vec<AppEntry>>),
+    Apps(u64, Arc<Vec<AppEntry>>),
+    Trim,
     Recents(Vec<RecentFile>),
     Windows(Vec<Window>),
     WindowsReady(calloop::channel::Sender<Command>),
@@ -220,6 +226,8 @@ pub enum Message {
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    /// Send the windows as they are now: the menu shows.
+    Refresh,
     Activate(String),
     Close(String),
 }
@@ -230,6 +238,9 @@ pub struct StartMenu {
     shown_at: Instant,
     /// The height the surface got: the screen, less the panel.
     room: f32,
+    hidden_at: Instant,
+    /// The application folders as they were when the apps were read.
+    apps_signature: Option<u64>,
     apps: Arc<Vec<AppEntry>>,
     recents: Vec<RecentFile>,
     /// The apps opened from here, the last first, with when.
@@ -253,7 +264,8 @@ pub struct StartMenu {
 
 impl cosmic::Application for StartMenu {
     type Message = Message;
-    type Executor = cosmic::executor::Default;
+    // One worker thread, not one per core: there is little to do.
+    type Executor = cosmic::SingleThreadExecutor;
     /// Whether to open on the tools.
     type Flags = bool;
     const APP_ID: &'static str = APP_ID;
@@ -267,6 +279,8 @@ impl cosmic::Application for StartMenu {
             surface: None,
             shown_at: Instant::now(),
             room: 0.0,
+            hidden_at: Instant::now() - Duration::from_secs(1),
+            apps_signature: None,
             apps: Arc::default(),
             recents: Vec::new(),
             launched: config().and_then(|c| c.get("launched").ok()).unwrap_or_default(),
@@ -335,7 +349,15 @@ impl cosmic::Application for StartMenu {
     fn update(&mut self, message: Message) -> app::Task<Message> {
         match message {
             Message::Toggle => {
-                return if self.surface.is_some() { self.hide() } else { self.show() };
+                if self.surface.is_some() {
+                    return self.hide();
+                }
+                // The click on the Start button that took the keyboard from
+                // the menu, and closed it, meant to close it.
+                if self.hidden_at.elapsed() < Duration::from_millis(300) {
+                    return Task::none();
+                }
+                return self.show();
             }
             Message::Hide => return self.hide(),
             Message::Tools => {
@@ -388,7 +410,14 @@ impl cosmic::Application for StartMenu {
                 }
             }
             Message::Resized(height) => self.room = height,
-            Message::Apps(apps) => {
+            Message::Trim => {
+                if self.surface.is_none() {
+                    // SAFETY: only hands freed memory back to the system.
+                    unsafe { libc::malloc_trim(0) };
+                }
+            }
+            Message::Apps(signature, apps) => {
+                self.apps_signature = Some(signature);
                 self.apps = apps;
                 self.selected = 0;
             }
@@ -553,11 +582,7 @@ impl cosmic::Application for StartMenu {
             .on_right_press(Message::Hide);
             return iced::widget::stack(vec![backdrop.into(), placed.into()]).into();
         }
-        let height = if self.room > 0.0 {
-            HEIGHT.min(self.room - 2.0 * MARGIN)
-        } else {
-            HEIGHT
-        };
+        let height = self.menu_height();
 
         let body: Element<'_, Message> = if !self.query.trim().is_empty() {
             self.results(p)
@@ -635,6 +660,11 @@ impl StartMenu {
         self.tools = false;
         self.power_open = false;
         self.on_top = panel_on_top();
+        // Over the whole screen, transparent but for the menu: a click
+        // anywhere else, on the wallpaper too, lands on it and closes it, as
+        // on Windows. A surface the menu's size alone costs as much to
+        // open (its making, not its pixels, is what costs), and a click on
+        // the wallpaper wouldn't close it.
         let surface = get_layer_surface(SctkLayerSurfaceSettings {
             id,
             layer: Layer::Top,
@@ -646,11 +676,27 @@ impl StartMenu {
             size_limits: Limits::NONE.min_width(1.0).min_height(1.0),
             ..Default::default()
         });
-        // Apps and files come and go: read them again each time, the old
-        // lists showing meanwhile.
+        WINDOWS_SHOWN.store(true, Ordering::Relaxed);
+        if let Some(tx) = &self.windows_tx {
+            _ = tx.send(Command::Refresh);
+        }
+        // Apps come and go, but seldom: read them again only when a folder
+        // of them changed. Files are quick to look at, each time.
+        let known = self.apps_signature;
         let apps = Task::perform(
-            async { tokio::task::spawn_blocking(load_apps).await.unwrap_or_default() },
-            |apps| cosmic::action::app(Message::Apps(Arc::new(apps))),
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let signature = apps_signature();
+                    (known != Some(signature)).then(|| (signature, load_apps()))
+                })
+                .await
+                .ok()
+                .flatten()
+            },
+            |apps| match apps {
+                Some((signature, apps)) => cosmic::action::app(Message::Apps(signature, Arc::new(apps))),
+                None => cosmic::action::none(),
+            },
         );
         let recents = Task::perform(
             async { tokio::task::spawn_blocking(load_recents).await.unwrap_or_default() },
@@ -663,9 +709,24 @@ impl StartMenu {
     }
 
     fn hide(&mut self) -> app::Task<Message> {
-        match self.surface.take() {
-            Some(id) => destroy_layer_surface(id),
-            None => Task::none(),
+        let Some(id) = self.surface.take() else {
+            return Task::none();
+        };
+        self.hidden_at = Instant::now();
+        WINDOWS_SHOWN.store(false, Ordering::Relaxed);
+        // What drawing it took goes back to the system, once it is gone.
+        let trim = Task::perform(tokio::time::sleep(Duration::from_millis(500)), |()| {
+            cosmic::action::app(Message::Trim)
+        });
+        Task::batch([destroy_layer_surface(id), trim])
+    }
+
+    /// The menu's height: as Windows', less on a short screen.
+    fn menu_height(&self) -> f32 {
+        if self.room > 0.0 {
+            HEIGHT.min(self.room - 2.0 * MARGIN)
+        } else {
+            HEIGHT
         }
     }
 
@@ -686,7 +747,7 @@ impl StartMenu {
             async move {
                 cosmic::desktop::spawn_desktop_exec(
                     exec,
-                    std::iter::empty::<(String, String)>(),
+                    [workers()],
                     Some(&id),
                     terminal,
                 )
@@ -1936,9 +1997,26 @@ fn user_dirs(home: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// TOKIO_WORKER_THREADS as the programs started from here should have it:
+/// as it came, not the 1 this one runs with.
+fn workers() -> (String, String) {
+    let value = crate::WORKERS
+        .get()
+        .cloned()
+        .flatten()
+        .map(|v| v.to_string_lossy().into_owned())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(1, |n| n.get()).to_string()
+        });
+    ("TOKIO_WORKER_THREADS".to_owned(), value)
+}
+
 /// Start a program and leave it be; reaped by a thread, not left a zombie.
 fn spawn(program: &str, args: &[&str]) {
-    match std::process::Command::new(program).args(args).spawn() {
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    restore_workers(&mut command);
+    match command.spawn() {
         Ok(mut child) => {
             std::thread::spawn(move || child.wait());
         }
@@ -1991,6 +2069,30 @@ fn find_app<'a>(apps: &'a [AppEntry], id: &str) -> Option<&'a AppEntry> {
                 || a.id.to_lowercase().ends_with(&format!(".{wanted}"))
         })
     })
+}
+
+/// The application folders' times, and their subfolders': a file added,
+/// removed or renamed in one changes it.
+fn apps_signature() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let stamp = |path: &Path, hasher: &mut std::collections::hash_map::DefaultHasher| {
+        if let Ok(modified) = std::fs::metadata(path).and_then(|m| m.modified()) {
+            path.hash(hasher);
+            modified.hash(hasher);
+        }
+    };
+    for dir in fde::default_paths() {
+        stamp(&dir, &mut hasher);
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                    stamp(&entry.path(), &mut hasher);
+                }
+            }
+        }
+    }
+    hasher.finish()
 }
 
 fn load_apps() -> Vec<AppEntry> {
@@ -2193,7 +2295,9 @@ struct State {
 
 impl State {
     fn report(&mut self) {
-        if !std::mem::take(&mut self.dirty) {
+        // Hidden, the menu needn't hear of each title that changes: it
+        // sleeps, and hears all when it shows.
+        if !WINDOWS_SHOWN.load(Ordering::Relaxed) || !std::mem::take(&mut self.dirty) {
             return;
         }
         use zcosmic_toplevel_handle_v1::State as S;
@@ -2243,6 +2347,10 @@ impl State {
                 if let Some(handle) = self.handle(&id) {
                     self.manager.manager.close(&handle);
                 }
+            }
+            Command::Refresh => {
+                self.dirty = true;
+                self.report();
             }
         }
     }
@@ -2342,6 +2450,13 @@ cctk::delegate_toplevel_manager!(State);
 sctk::delegate_seat!(State);
 sctk::delegate_registry!(State);
 
+fn restore_workers(command: &mut std::process::Command) {
+    match crate::WORKERS.get().cloned().flatten() {
+        Some(value) => command.env("TOKIO_WORKER_THREADS", value),
+        None => command.env_remove("TOKIO_WORKER_THREADS"),
+    };
+}
+
 /// This program, where it is now: after a reinstall the running one's file
 /// is gone, and Linux names it "… (deleted)"; the new one is at that path.
 pub fn self_exe() -> PathBuf {
@@ -2359,6 +2474,10 @@ pub fn self_exe() -> PathBuf {
 pub fn spawn_clean(program: &str, args: &[&str]) {
     let mut command = std::process::Command::new(program);
     command.args(args);
+    // Itself (the menu) runs with one thread; other programs as they were.
+    if program != self_exe().to_string_lossy() {
+        restore_workers(&mut command);
+    }
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
         if name == "WAYLAND_SOCKET" || name == "X_PRIVILEGED_WAYLAND_SOCKET" || name.starts_with("COSMIC_PANEL_") {
