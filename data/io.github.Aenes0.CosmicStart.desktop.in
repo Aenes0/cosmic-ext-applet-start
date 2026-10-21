@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Start
+Name[pt_BR]=Iniciar
+Comment=Start menu as on Windows 11: search, pinned apps, open windows, recommended and all apps
+Comment[pt_BR]=Menu Iniciar como o do Windows 11: pesquisa, apps fixados, janelas abertas, recomendados e todos os apps
+Type=Application
+Exec=@bindir@/cosmic-ext-applet-start
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Start;Menu;Launcher;Apps;
+Icon=start-here-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-HostWaylandDisplay=true
