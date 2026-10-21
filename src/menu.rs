@@ -242,7 +242,10 @@ impl cosmic::Application for StartMenu {
     type Flags = ();
     const APP_ID: &'static str = APP_ID;
 
-    fn init(core: app::Core, _flags: ()) -> (Self, app::Task<Message>) {
+    fn init(mut core: app::Core, _flags: ()) -> (Self, app::Task<Message>) {
+        // No frosted glass: libcosmic would blur what is behind the whole
+        // surface, the screen all over, not just the menu.
+        core.set_auto_blur(Default::default());
         let mut menu = Self {
             core,
             surface: None,
