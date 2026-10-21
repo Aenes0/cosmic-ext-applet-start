@@ -8,6 +8,8 @@ pub const APP_ID: &str = "io.github.Aenes0.CosmicStart";
 
 /// TOKIO_WORKER_THREADS as it came, for the programs started from here.
 pub static WORKERS: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
+/// ICED_BACKEND as it came, for the programs started from here.
+pub static BACKEND: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
 
 fn main() -> cosmic::iced::Result {
     // The D-Bus library starts a runtime with a thread per core (32 here),
@@ -42,6 +44,11 @@ fn main() -> cosmic::iced::Result {
             .transparent(true);
         return cosmic::app::run::<menu::StartMenu>(settings, tools);
     }
-    // Else the button, as the panel runs it.
+    // Else the button, as the panel runs it. It draws on the CPU: the GPU
+    // would cost it memory and the driver's wakeups, for a button. The
+    // menu, which scrolls long lists, draws on the GPU.
+    BACKEND.get_or_init(|| std::env::var_os("ICED_BACKEND"));
+    // SAFETY: nothing else runs yet.
+    unsafe { std::env::set_var("ICED_BACKEND", "tiny-skia") };
     cosmic::applet::run::<menu::StartButton>(())
 }

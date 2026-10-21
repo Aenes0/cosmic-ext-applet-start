@@ -57,11 +57,14 @@ que no COSMIC troca janelas de lugar, passa a abrir este menu (`./setup.sh --und
 
 ## Desempenho
 
-Parado, o menu não gasta nada: escondido, não acorda (0 ms de CPU e nenhuma acordada em
-30 s, medido), nem quando os títulos das janelas mudam; a lista delas só vem quando ele
-abre. Ocupa uns 25 MB (cerca de 11 MB só dele), e cada botão do painel uns 22 MB (8 MB
-só dele). Cada abertura custa uns 90 ms de um núcleo, quase tudo para criar a camada na
-tela, que é refeita a cada vez para abrir no monitor em uso.
+O menu desenha na GPU (wgpu): pela CPU, rolar a lista de apps ocupava 60% de um núcleo
+e engasgava. O preço: uns 38 MB só dele (eram 11 MB) e, escondido, cerca de 1 ms de CPU
+por segundo, de uma thread do driver de vídeo que acorda 100 vezes por segundo; o menu
+mesmo não acorda, nem quando os títulos das janelas mudam (a lista delas só vem quando
+ele abre). Os botões do painel continuam desenhando na CPU (`ICED_BACKEND=tiny-skia`):
+cada um ocupa uns 22 MB (8 MB só dele) e não acorda. Cada abertura do menu custa uns
+90 ms de um núcleo, quase tudo para criar a camada na tela, que é refeita a cada vez
+para abrir no monitor em uso.
 
 O que foi feito para isso:
 

@@ -17,6 +17,7 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = fa
     "multi-window",
     "tokio",
     "wayland",
+    "wgpu",
     "winit",
 ] }
 tokio = { version = "1.49.0", features = ["full"] }

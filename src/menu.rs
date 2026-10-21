@@ -2478,6 +2478,13 @@ pub fn spawn_clean(program: &str, args: &[&str]) {
     if program != self_exe().to_string_lossy() {
         restore_workers(&mut command);
     }
+    // The button's CPU drawing is the button's alone.
+    if let Some(backend) = crate::BACKEND.get() {
+        match backend {
+            Some(value) => command.env("ICED_BACKEND", value),
+            None => command.env_remove("ICED_BACKEND"),
+        };
+    }
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
         if name == "WAYLAND_SOCKET" || name == "X_PRIVILEGED_WAYLAND_SOCKET" || name.starts_with("COSMIC_PANEL_") {
