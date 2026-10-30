@@ -166,6 +166,12 @@ fn row<'a, M: Clone + 'static>(icon: &'static str, label: &'static str, arrow: b
         .into()
 }
 
+const MAIN_WIDTH: f32 = 250.0;
+const POWER_WIDTH: f32 = 190.0;
+const POWER_GAP: f32 = 2.0;
+/// Largura total do Win+X com energia aberta; o menu usa como piso da coluna do Win+X.
+pub const WIDTH: f32 = MAIN_WIDTH + POWER_GAP + POWER_WIDTH;
+
 /// The menu; with "Shut down or sign out" open, its own beside it, level
 /// with that line, as Windows has it.
 pub fn view<'a, M: Clone + 'static>(power_open: bool, on: impl Fn(Tool) -> M, p: Palette) -> Element<'a, M> {
@@ -189,7 +195,7 @@ pub fn view<'a, M: Clone + 'static>(power_open: bool, on: impl Fn(Tool) -> M, p:
             .into(),
         });
     }
-    let main = card(list, 250.0, p);
+    let main = card(list, MAIN_WIDTH, p);
     if !power_open {
         return main;
     }
@@ -200,11 +206,21 @@ pub fn view<'a, M: Clone + 'static>(power_open: bool, on: impl Fn(Tool) -> M, p:
     // Its foot a line above the menu's: by "Shut down or sign out".
     widget::row::with_children(vec![
         main,
-        widget::container(card(power, 190.0, p))
+        widget::container(card(power, POWER_WIDTH, p))
             .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 42.0, left: 0.0 })
             .into(),
     ])
-    .spacing(2)
+    .spacing(POWER_GAP)
     .align_y(Alignment::End)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn width_is_main_plus_gap_plus_power() {
+        assert_eq!(WIDTH, 442.0);
+    }
 }

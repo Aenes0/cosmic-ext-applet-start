@@ -1,0 +1,23 @@
+Patch for the libcosmic `iced` submodule (paths are relative to iced/).
+Apply with scripts/libcosmic-patched.sh, never by hand.
+
+iced_tiny_skia: remove the dead first `let quality` of the raster pipeline's
+draw. The second one, right before `draw_pixmap`, shadows it and is the one
+used, so the behaviour is identical; the rustc `unused variable: quality`
+warning (it only shows now that the crate is a path dependency) goes away.
+
+diff --git a/tiny_skia/src/raster.rs b/tiny_skia/src/raster.rs
+index 0535158a..7c461a76 100644
+--- a/tiny_skia/src/raster.rs
++++ b/tiny_skia/src/raster.rs
+@@ -71,10 +71,6 @@ impl Pipeline {
+ 
+         let width_scale = bounds.width / image.width() as f32;
+         let height_scale = bounds.height / image.height() as f32;
+-        let quality = match filter_method {
+-            raster::FilterMethod::Linear => tiny_skia::FilterQuality::Bilinear,
+-            raster::FilterMethod::Nearest => tiny_skia::FilterQuality::Nearest,
+-        };
+         let mut scratch;
+ 
+         // Round the borders if a border radius is defined

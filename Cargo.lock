@@ -956,8 +956,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
+ "iced_tiny_skia",
+ "image",
  "libc",
  "libcosmic",
+ "memmap2 0.9.11",
+ "resvg",
+ "rustix 1.1.4",
+ "shlex 1.3.0",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2346,7 +2352,6 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#d4d71fd53e5ed6bd3a430089114dffa2da3cd498"
 dependencies = [
  "bytemuck",
  "cosmic-text",

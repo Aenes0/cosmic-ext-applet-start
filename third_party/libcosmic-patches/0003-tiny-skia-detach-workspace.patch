@@ -1,0 +1,75 @@
+Patch for the libcosmic `iced` submodule (paths are relative to iced/).
+Apply with scripts/libcosmic-patched.sh, never by hand.
+
+iced_tiny_skia: stop inheriting from the iced workspace (package fields,
+lints and dependencies are written out with the same values). This lets
+start-menu replace only this crate with a [patch] entry: iced_debug and
+iced_graphics point to the same `git = "https://github.com/pop-os/libcosmic"`
+source as the rest of the dependency graph, so no iced crate is duplicated.
+
+diff --git a/tiny_skia/Cargo.toml b/tiny_skia/Cargo.toml
+index a01110ca..82098a48 100644
+--- a/tiny_skia/Cargo.toml
++++ b/tiny_skia/Cargo.toml
+@@ -1,17 +1,21 @@
+ [package]
+ name = "iced_tiny_skia"
+ description = "A software renderer for iced on top of tiny-skia"
+-version.workspace = true
+-edition.workspace = true
+-authors.workspace = true
+-license.workspace = true
+-repository.workspace = true
+-homepage.workspace = true
+-categories.workspace = true
+-keywords.workspace = true
++# Detached from the iced workspace (values copied from its root manifest) so
++# that start-menu can patch this crate alone: iced_debug and iced_graphics must
++# keep coming from the very same git source as the rest of libcosmic.
++version = "0.14.0"
++edition = "2024"
++authors = ["Héctor Ramón Jiménez <hector@hecrj.dev>"]
++license = "MIT"
++repository = "https://github.com/iced-rs/iced"
++homepage = "https://iced.rs"
++categories = ["gui"]
++keywords = ["gui", "ui", "graphics", "interface", "widgets"]
+ 
+-[lints]
+-workspace = true
++[lints.rust]
++rust_2018_idioms = { level = "deny", priority = -1 }
++unused_results = "deny"
+ 
+ [features]
+ default = ["x11", "wayland"]
+@@ -22,16 +26,18 @@ x11 = ["softbuffer/x11", "softbuffer/x11-dlopen"]
+ wayland = ["softbuffer/wayland", "softbuffer/wayland-dlopen"]
+ 
+ [dependencies]
+-iced_debug.workspace = true
+-iced_graphics.workspace = true
++iced_debug = { git = "https://github.com/pop-os/libcosmic" }
++iced_graphics = { git = "https://github.com/pop-os/libcosmic" }
+ 
+-bytemuck.workspace = true
+-cosmic-text.workspace = true
+-kurbo.workspace = true
+-log.workspace = true
+-rustc-hash.workspace = true
+-softbuffer.workspace = true
+-tiny-skia.workspace = true
++bytemuck = { version = "1.0", features = ["derive"] }
++cosmic-text = "0.19"
++kurbo = "0.10"
++log = "0.4"
++rustc-hash = "2.0"
++softbuffer = { git = "https://github.com/pop-os/softbuffer", tag = "cosmic-4.0" }
++tiny-skia = { version = "0.11", default-features = false, features = [
++    "std",
++    "simd",
++] }
+ 
+-resvg.workspace = true
+-resvg.optional = true
++resvg = { version = "0.45", optional = true }
