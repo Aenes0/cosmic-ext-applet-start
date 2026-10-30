@@ -1,3 +1,7 @@
+> **Projeto depreciado.** A barra de tarefas e o menu Iniciar foram unificados em um programa só:
+> **[Aenes0/cosmic-taskbar](https://github.com/Aenes0/cosmic-taskbar)**, que tem o histórico deste
+> repositório e recebe todas as correções daqui em diante. Este repositório fica arquivado, somente leitura.
+
 # Iniciar — menu Iniciar do Windows 11 para o COSMIC
 
 Um applet para o painel do COSMIC: um menu Iniciar como o do Windows 11, que toma o
